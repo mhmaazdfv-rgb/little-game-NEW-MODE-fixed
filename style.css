@@ -1,4 +1,8 @@
-﻿:root {
+/* 
+ * FIREFLY FLOW STYLESHEET
+ * Contains global variables, 2D UI styles, and the specific 3D horror HUD elements.
+ */
+:root {
             --bg-base: #050508; 
             --bg-alt: #0a0812; 
             --glow-primary: #89b4fa;   
@@ -329,6 +333,7 @@
             40%, 60% { transform: translate3d(4px, -2px, 0); } 
         }
 
+        /* Fullscreen jump-scare flash effect */
         .glitch-flash { 
             position: absolute; 
             top: 0; 
@@ -340,3 +345,6 @@
             opacity: 0; 
             pointer-events: none; 
         }
+
+
+       @keyframes sweep { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
