@@ -1,0 +1,84 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Firefly Flow: Ultimate Tracking Edition & Backrooms</title>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <div id="screen-menu" class="screen">
+            <h1 class="title">FIREFLY<br>FLOW</h1>
+            <p class="subtitle">Press and hold to track the light.</p>
+            <button id="btn-start" class="btn">Begin Session</button>
+            <button id="btn-settings-open" class="btn">Settings</button>
+        </div>
+        <div id="screen-settings" class="screen hidden">
+            <h1 class="title" style="font-size: 3rem;">SETTINGS</h1>
+            <div class="settings-panel">
+                <div class="setting-row">
+                    <span>Custom Music</span>
+                    <input type="file" id="music-upload" accept="audio/*" style="display: none;">
+                    <button id="btn-upload-music" class="btn" style="font-size: 0.8rem; padding: 0.5rem 1rem;">Select Audio File</button>
+                </div>
+                <div class="setting-row">
+                    <span>Music Volume</span>
+                    <input type="range" id="set-music" min="0" max="100" value="50" style="width: 120px; cursor: pointer;">
+                </div>
+                <div class="setting-row">
+                    <span>SFX Volume</span>
+                    <input type="range" id="set-sfx" min="0" max="100" value="100" style="width: 120px; cursor: pointer;">
+                </div>
+                <div class="setting-row">
+                    <span>Visual Quality</span>
+                    <div class="stepper" id="set-quality" data-options="LOW,HIGH"><span>HIGH</span></div>
+                </div>
+                <div class="setting-row">
+                    <span>Swarm Size</span>
+                    <div class="stepper" id="set-swarm" data-options="FEW,NORMAL,SWARM"><span>NORMAL</span></div>
+                </div>
+                <div class="setting-row">
+                    <span>Game Speed</span>
+                    <div class="stepper" id="set-speed" data-options="ZEN,NORMAL,FAST"><span>ZEN</span></div>
+                </div>
+            </div>
+            <button id="btn-settings-close" class="btn">Back</button>
+        </div>
+        <div id="screen-pause" class="screen hidden">
+            <h1 class="title" style="font-size: 4rem;">PAUSED</h1>
+            <p class="subtitle">Take a deep breath.</p>
+            <button id="btn-resume" class="btn">Resume</button>
+            <button id="btn-quit" class="btn">Quit to Menu</button>
+        </div>
+        <div id="hud" class="screen hidden">
+            <div class="hud-top">
+                <div id="score-container">
+                    <div id="score-label">Focus Score</div>
+                    <div id="score-value">0</div>
+                </div>
+                <div id="combo-container">
+                    <div id="combo-value">x1</div>
+                    <div id="combo-bar-bg">
+                        <div id="combo-bar-fill"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="hud-bottom">
+                <div class="instruction-text" id="instruction-hud">Press and hold to track fireflies</div>
+            </div>
+            <button id="btn-pause">&#x23F8;</button>
+        </div>
+        <div class="ambient-glow" id="ambientGlow"></div>
+        <div class="glitch-flash" id="glitch-flash"></div>
+        <canvas id="game-canvas"></canvas>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
