@@ -5042,7 +5042,14 @@ const ROOM_TEMPLATES = [
 
         this.camera.position.set(1.5, 0.5, 1.5);
         this.monsterState = 'stalking';
+        this.frustum = new THREE.Frustum();
+        this.projScreenMatrix = new THREE.Matrix4();
         this.heartbeatTimer = 0;
+
+        // Flashlight state must start defined, or "undefined <= 0" silently
+        // evaluates to false forever and the F key never does anything.
+        this.flashlightBattery = 12.0;
+        this.flashlightCooldown = 0;
 
         this.kd = (e) => this.onKeyDown(e);
         this.ku = (e) => this.onKeyUp(e);
@@ -5059,6 +5066,9 @@ const ROOM_TEMPLATES = [
 
     loadMonsterModel() {
         const loader = new THREE.GLTFLoader();
+        const dracoLoader = new THREE.DRACOLoader();
+        dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.4.1/');
+        loader.setDRACOLoader(dracoLoader);
         loader.load('Hi3D_Untitled_allparts_20260827_090613.glb', (gltf) => {
             const model = gltf.scene;
             const box = new THREE.Box3().setFromObject(model);
@@ -5073,7 +5083,11 @@ const ROOM_TEMPLATES = [
             
               model.traverse((child) => {
                   if (child.isMesh) {
-                      child.material.color = new THREE.Color(0x050505); // Dark Gray
+                      child.material.color = new THREE.Color(0x1a1a1a); // Lighter black
+                      if (child.material) {
+                          child.material.roughness = 0.5; 
+                          child.material.metalness = 0.2;
+                      } // Dark Gray
                       // A heuristic for the face - assuming standard model structure or just making the whole head lighter
                       if (child.name.toLowerCase().includes('face') || child.name.toLowerCase().includes('head') || child.geometry.attributes.position.count < 1000) {
                           child.material.color = new THREE.Color(0xbbbbbb); // Light Gray Face
@@ -5091,7 +5105,7 @@ const ROOM_TEMPLATES = [
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.1);
         this.scene.add(ambientLight);
         
-          this.flashlight = new THREE.SpotLight(0xfff0dd, 10.0, 60, Math.PI / 6, 0.8, 1);
+          this.flashlight = new THREE.SpotLight(0xfff0dd, 4.0, 60, Math.PI / 6, 0.6, 1);
           this.flashlight.position.set(0, 0, 0);
           this.flashlight.target.position.set(0, 0, -1);
           this.camera.add(this.flashlight.target);
@@ -5102,15 +5116,17 @@ const ROOM_TEMPLATES = [
 
     buildMaze() {
         const wallGeo = new THREE.BoxGeometry(1, 2, 1);
-        const wallMat = new THREE.MeshPhongMaterial({ color: 0x888888, shininess: 10 });
+        this.wallMat = new THREE.MeshPhongMaterial({ color: 0x888888, shininess: 10 });
+        this.walls = [];
         const exitMat = new THREE.MeshBasicMaterial({ color: 0x00ff00 }); // Green exit
         
         for (let y = 0; y < this.mapHeight; y++) {
             for (let x = 0; x < this.mapWidth; x++) {
                 if (this.map[y][x] === 1) {
-                    const wall = new THREE.Mesh(wallGeo, wallMat);
+                    const wall = new THREE.Mesh(wallGeo, this.wallMat);
                     wall.position.set(x + 0.5, 1, y + 0.5);
                     this.scene.add(wall);
+                    this.walls.push(wall);
                 } else if (this.map[y][x] === 5) {
                     const exit = new THREE.Mesh(wallGeo, exitMat);
                     exit.position.set(x + 0.5, 1, y + 0.5);
@@ -5130,7 +5146,7 @@ const ROOM_TEMPLATES = [
     onKeyDown(event) {
         switch (event.code) {
             case 'ArrowUp': case 'KeyW': this.moveForward = true; break;
-                      case 'KeyF': if(this.flashlight) this.flashlight.visible = !this.flashlight.visible; break;
+            case 'KeyF': if(this.flashlight && this.flashlightCooldown <= 0) this.flashlight.visible = !this.flashlight.visible; break;
             case 'ArrowLeft': case 'KeyA': this.moveLeft = true; break;
             case 'ArrowDown': case 'KeyS': this.moveBackward = true; break;
             case 'ArrowRight': case 'KeyD': this.moveRight = true; break;
@@ -5150,7 +5166,48 @@ const ROOM_TEMPLATES = [
 
         // Mathematical collision check against the 2D array grid map.
     // Returns 1 for walls, 0 for empty space, and 5 for the exit door.
-        checkCollision(x, z) {
+        getNextStep(sx, sz, tx, tz) {
+        const start = {x: Math.floor(sx), z: Math.floor(sz)};
+        const target = {x: Math.floor(tx), z: Math.floor(tz)};
+        if (start.x === target.x && start.z === target.z) return null;
+        
+        const queue = [start];
+        const visited = new Set();
+        visited.add(`${start.x},${start.z}`);
+        const parent = {};
+        
+        let found = false;
+        while(queue.length > 0) {
+            const curr = queue.shift();
+            if (curr.x === target.x && curr.z === target.z) {
+                found = true; break;
+            }
+            const neighbors = [
+                {x: curr.x+1, z: curr.z}, {x: curr.x-1, z: curr.z},
+                {x: curr.x, z: curr.z+1}, {x: curr.x, z: curr.z-1}
+            ];
+            for (let n of neighbors) {
+                if (n.z >= 0 && n.z < this.mapHeight && n.x >= 0 && n.x < this.mapWidth) {
+                    if (this.map[n.z][n.x] !== 1 && !visited.has(`${n.x},${n.z}`)) {
+                        visited.add(`${n.x},${n.z}`);
+                        parent[`${n.x},${n.z}`] = curr;
+                        queue.push(n);
+                    }
+                }
+            }
+        }
+        
+        if (found) {
+            let curr = target;
+            while(parent[`${curr.x},${curr.z}`] && (parent[`${curr.x},${curr.z}`].x !== start.x || parent[`${curr.x},${curr.z}`].z !== start.z)) {
+                curr = parent[`${curr.x},${curr.z}`];
+            }
+            return curr;
+        }
+        return null;
+    }
+
+    checkCollision(x, z) {
         const cx = Math.floor(x);
         const cz = Math.floor(z);
         if (cx < 0 || cx >= this.mapWidth || cz < 0 || cz >= this.mapHeight) return 1;
@@ -5169,7 +5226,7 @@ const ROOM_TEMPLATES = [
         }
 
         try {
-            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const ctx = Synth.ctx; if(ctx) {
             const osc = ctx.createOscillator();
             const env = ctx.createGain();
             osc.type = 'sawtooth';
@@ -5182,7 +5239,7 @@ const ROOM_TEMPLATES = [
             env.connect(ctx.destination);
             osc.start(ctx.currentTime);
             osc.stop(ctx.currentTime + 0.9);
-        } catch(e) {}
+        } } catch(e) {}
 
         setTimeout(() => {
             this.monsterState = 'stalking';
@@ -5200,10 +5257,9 @@ const ROOM_TEMPLATES = [
 update(dt) {
         if (this.hasWon) return true;
         const time = performance.now();
-        const delta = Math.min((time - this.prevTime) / 1000, 0.1); 
+        const delta = Math.min((time - this.prevTime) / 1000, 0.1);
 
         // Stamina logic
-        
         if (this.stamina === undefined) this.stamina = 100;
         if (this.exhausted === undefined) this.exhausted = false;
         
@@ -5213,54 +5269,51 @@ update(dt) {
         const isMoving = this.moveForward || this.moveBackward || this.moveLeft || this.moveRight;
         const isSprinting = this.moveShift && !this.exhausted && isMoving;
 
-        
         if (isSprinting) {
-            this.stamina = Math.max(0, this.stamina - 20 * delta);
+            this.stamina = Math.max(0, this.stamina - 30 * delta);
         } else {
-            this.stamina = Math.min(100, this.stamina + 10 * delta);
+            this.stamina = Math.min(100, this.stamina + 2.5 * delta);
         }
         
-        const staminaFill = document.getElementById('stamina-fill');
-        if (staminaFill) {
-            staminaFill.style.width = this.stamina + '%';
-            staminaFill.style.background = this.stamina > 20 ? '#00ff00' : 'red';
+        const staminaBar = document.getElementById('stamina-fill');
+        if (staminaBar) {
+            staminaBar.style.width = this.stamina + '%';
+            staminaBar.style.backgroundColor = this.exhausted ? 'red' : '#00ff00';
         }
 
-        if (true) {
-            const moveZ = (this.moveForward ? 1 : 0) - (this.moveBackward ? 1 : 0);
-            const moveX = (this.moveRight ? 1 : 0) - (this.moveLeft ? 1 : 0);
-            
-            const speed = isSprinting ? 4.0 : 1.5;
-            
-            this.velocity.z = this.velocity.z * (1.0 - 10.0 * delta) + moveZ * speed * 10.0 * delta;
-            this.velocity.x = this.velocity.x * (1.0 - 10.0 * delta) + moveX * speed * 10.0 * delta;
+        let speed = isSprinting ? 3.5 : 2.0;
 
-            const dirVec = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
-            dirVec.y = 0; dirVec.normalize();
-            const rightVec = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
-            rightVec.y = 0; rightVec.normalize();
-            
-            const deltaX = (dirVec.x * this.velocity.z + rightVec.x * this.velocity.x) * delta;
-            const deltaZ = (dirVec.z * this.velocity.z + rightVec.z * this.velocity.x) * delta;
-            
+        // Player movement
+        const dir = new THREE.Vector3();
+        if (this.moveForward) dir.z -= 1;
+        if (this.moveBackward) dir.z += 1;
+        if (this.moveLeft) dir.x -= 1;
+        if (this.moveRight) dir.x += 1;
+
+        if (dir.lengthSq() > 0) {
+            dir.normalize();
+            dir.applyQuaternion(this.camera.quaternion);
+            dir.y = 0;
+            dir.normalize();
+
+            // AABB Collision (X and Z checked independently to allow sliding)
             const pad = 0.2;
-            let finalDeltaX = deltaX;
-            let finalDeltaZ = deltaZ;
-            
-            // X-axis collision (check the two leading corners of the bounding box)
+            let finalDeltaX = dir.x * speed * delta;
+            let finalDeltaZ = dir.z * speed * delta;
+
+            const nextXForX = this.camera.position.x + finalDeltaX;
             if (finalDeltaX !== 0) {
                 const checkX = finalDeltaX > 0 ? this.camera.position.x + finalDeltaX + pad : this.camera.position.x + finalDeltaX - pad;
                 const hit1 = this.checkCollision(checkX, this.camera.position.z - pad);
                 const hit2 = this.checkCollision(checkX, this.camera.position.z + pad);
                 
                 if (hit1 === 1 || hit2 === 1) {
-                    finalDeltaX = 0; // Slide along X
+                    finalDeltaX = 0;
                 } else if (hit1 === 5 || hit2 === 5) {
                     this.hasWon = true; return true;
                 }
             }
             
-            // Z-axis collision (check the two leading corners using the updated X position)
             const nextXForZ = this.camera.position.x + finalDeltaX;
             if (finalDeltaZ !== 0) {
                 const checkZ = finalDeltaZ > 0 ? this.camera.position.z + finalDeltaZ + pad : this.camera.position.z + finalDeltaZ - pad;
@@ -5268,7 +5321,7 @@ update(dt) {
                 const hit2 = this.checkCollision(nextXForZ + pad, checkZ);
                 
                 if (hit1 === 1 || hit2 === 1) {
-                    finalDeltaZ = 0; // Slide along Z
+                    finalDeltaZ = 0;
                 } else if (hit1 === 5 || hit2 === 5) {
                     this.hasWon = true; return true;
                 }
@@ -5276,169 +5329,211 @@ update(dt) {
             
             this.camera.position.x += finalDeltaX;
             this.camera.position.z += finalDeltaZ;
+        }
 
+        // --- Battery UI Update ---
+        const batteryBar = document.getElementById('flashlight-battery');
+        if (this.flashlight && this.flashlight.visible) {
+            this.flashlightBattery -= delta / 4;
+            if (this.flashlightBattery <= 0) {
+                this.flashlightBattery = 0;
+                this.flashlight.visible = false;
+                this.flashlightCooldown = 3.0;
+            }
+        } else {
+            if (this.flashlightCooldown > 0) {
+                this.flashlightCooldown -= delta;
+                if (this.flashlightCooldown <= 0) this.flashlightCooldown = 0;
+            } else if (this.flashlightBattery < 10.0) {
+                this.flashlightBattery += delta / 8;
+                if (this.flashlightBattery > 10.0) this.flashlightBattery = 10.0;
+            }
+        }
+        if (batteryBar) {
+            batteryBar.style.width = (this.flashlightBattery / 10.0 * 100) + '%';
+            batteryBar.style.backgroundColor = (this.flashlightCooldown > 0) ? 'red' : 'rgb(250, 204, 21)';
+        }
+
+        // --- Death Sequence Logic ---
+        if (this.isDead) {
+            if (!this.neckSnapped) {
+                this.neckSnapped = true;
+                this.camera.rotation.set(this.pitch - 1.2, this.camera.rotation.y, 0.8, 'YXZ');
+                this.pitch = this.camera.rotation.x;
+            } else {
+                this.camera.rotation.set(this.pitch, this.camera.rotation.y, 0.8, 'YXZ');
+            }
             
-            this.camera.position.y = 0.5;
+            this.deathTimer -= delta;
+            if (this.deathTimer <= 0) {
+                return 'LOSE';
+            }
+            
+            this.prevTime = time;
+            return false;
+        }
 
-            // --- Weeping Angel Monster Logic ---
-            if (this.monsterState === 'stalking') {
-                const mx = this.monster.position.x;
-                const mz = this.monster.position.z;
-                const px = this.camera.position.x;
-                const pz = this.camera.position.z;
-                
-                const dist = Math.hypot(px - mx, pz - mz);
-                
-                // Compute camera directional vectors for relative radar math
-                const rDir = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion); rDir.y = 0; rDir.normalize();
-                const rRight = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion); rRight.y = 0; rRight.normalize();
+        // --- Monster Stalking Logic ---
+        if (this.monsterState === 'stalking' || this.monsterState === 'attacking') {
+            const mx = this.monster.position.x;
+            const mz = this.monster.position.z;
+            const px = this.camera.position.x;
+            const pz = this.camera.position.z;
+            const dist = Math.hypot(px - mx, pz - mz);
+            
+            const rDir = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion); rDir.y = 0; rDir.normalize();
+            const rRight = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion); rRight.y = 0; rRight.normalize();
+            
+            const radarM = document.getElementById('radar-monster');
+            if (radarM) {
+                const vecX = mx - px; const vecZ = mz - pz;
+                const fwd = vecX * rDir.x + vecZ * rDir.z;
+                const rgt = vecX * rRight.x + vecZ * rRight.z;
+                const rDx = rgt * 3; const rDz = -fwd * 3;
+                const mDist = Math.hypot(rDx, rDz);
+                let finalDx = rDx; let finalDz = rDz;
+                if (mDist > 75) { finalDx = (rDx / mDist) * 75; finalDz = (rDz / mDist) * 75; }
+                radarM.style.transform = 'translate(-50%, -50%)';
+                radarM.style.left = `calc(50% + ${finalDx}px)`;
+                radarM.style.top = `calc(50% + ${finalDz}px)`;
+                radarM.style.display = 'block';
+            }
+            
+            const radarExit = document.getElementById('radar-exit');
+            if (radarExit && this.exitPos) {
+                const vecX = this.exitPos.x - px; const vecZ = this.exitPos.y - pz;
+                const fwd = vecX * rDir.x + vecZ * rDir.z;
+                const rgt = vecX * rRight.x + vecZ * rRight.z;
+                const eDx = rgt * 3; const eDz = -fwd * 3;
+                const eDist = Math.hypot(eDx, eDz);
+                let finalDx = eDx; let finalDz = eDz;
+                if (eDist > 75) { finalDx = (eDx / eDist) * 75; finalDz = (eDz / eDist) * 75; }
+                radarExit.style.transform = 'translate(-50%, -50%)';
+                radarExit.style.left = `calc(50% + ${finalDx}px)`;
+                radarExit.style.top = `calc(50% + ${finalDz}px)`;
+                radarExit.style.display = 'block';
+            }
 
-                const radarM = document.getElementById('radar-monster');
-                if (radarM) {
-                    const vecX = mx - px;
-                    const vecZ = mz - pz;
-                    const fwd = vecX * rDir.x + vecZ * rDir.z;
-                    const rgt = vecX * rRight.x + vecZ * rRight.z;
+            if (dist < 15) {
+                this.heartbeatTimer -= delta;
+                if (this.heartbeatTimer <= 0) {
+                    this.heartbeatTimer = Math.max(0.3, dist * 0.08);
+                    try {
+                        const ctx = Synth.ctx; if(!ctx) return;
+                        const osc = ctx.createOscillator();
+                        const env = ctx.createGain();
+                        osc.type = 'sine'; osc.frequency.setValueAtTime(45, ctx.currentTime);
+                        osc.frequency.exponentialRampToValueAtTime(25, ctx.currentTime + 0.2);
+                        env.gain.setValueAtTime(0, ctx.currentTime);
+                        env.gain.linearRampToValueAtTime(10.0, ctx.currentTime + 0.05);
+                        env.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+                        osc.connect(env); env.connect(ctx.destination);
+                        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.4);
+                    } catch(e) {}
+                }
+            }
+
+            const targetRotation = Math.atan2(px - mx, pz - mz);
+            let diff = targetRotation - this.monster.rotation.y;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+            while (diff > Math.PI) diff -= Math.PI * 2;
+            this.monster.rotation.y += diff * 2.0 * delta;
+            
+            // 2. Damage completely independent of visibility
+            if (dist <= 1.2) {
+                this.isDead = true;
+                this.deathTimer = 2.0;
+                
+                try {
+    const ctx = Synth.ctx;
+    if(ctx) {
+        const osc = ctx.createOscillator();
+        const env = ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(150, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(10, ctx.currentTime + 1.0);
+        env.gain.setValueAtTime(0, ctx.currentTime);
+        env.gain.linearRampToValueAtTime(15.0 * (window.Settings ? window.Settings.sfxVol : 1.0), ctx.currentTime + 0.1);
+        env.gain.linearRampToValueAtTime(0, ctx.currentTime + 1.0);
+        osc.connect(env); env.connect(ctx.destination);
+        osc.start(); osc.stop(ctx.currentTime + 1.0);
+    }
+} catch(e) {}
+                
+                const flash = document.getElementById('glitch-flash');
+                if (flash) {
+                    flash.style.backgroundColor = "red";
+                    flash.style.display = 'block';
+                    flash.style.opacity = 0;
+                    flash.style.transition = 'opacity 2.0s ease-in-out';
                     
-                    const rDx = rgt * 3;
-                    const rDz = -fwd * 3; // -Z is up on the screen
-                    const mDist = Math.hypot(rDx, rDz);
+                    // Force a reflow to ensure the transition applies
+                    void flash.offsetWidth;
                     
-                    let finalDx = rDx; let finalDz = rDz;
-                    if (mDist > 75) { finalDx = (rDx / mDist) * 75; finalDz = (rDz / mDist) * 75; }
-                    radarM.style.transform = 'translate(-50%, -50%)';
-                    radarM.style.left = `calc(50% + ${finalDx}px)`;
-                    radarM.style.top = `calc(50% + ${finalDz}px)`;
-                    radarM.style.display = 'block';
+                    flash.style.opacity = 0.8;
+                    flash.classList.remove('hidden');
                 }
                 
-                const radarExit = document.getElementById('radar-exit');
-                if (radarExit && this.exitPos) {
-                    const vecX = this.exitPos.x - px;
-                    const vecZ = this.exitPos.y - pz;
-                    const fwd = vecX * rDir.x + vecZ * rDir.z;
-                    const rgt = vecX * rRight.x + vecZ * rRight.z;
+                this.prevTime = time;
+                return false;
+            }
+            
+            if (this.teleportCooldown === undefined) this.teleportCooldown = 2.0;
+            this.teleportCooldown -= delta;
+            
+            if (this.teleportCooldown <= 0) {
+                let canSee = false;
+                const frustum = this.frustum;
+                const projScreenMatrix = this.projScreenMatrix;
+                this.camera.updateMatrixWorld();
+                projScreenMatrix.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
+                frustum.setFromProjectionMatrix(projScreenMatrix);
+                
+                const monsterPos = this.monster.position.clone();
+                monsterPos.y = 1.0; 
+                
+                if (frustum.intersectsSphere(new THREE.Sphere(monsterPos, 1.5))) {
+                    const toMonster = new THREE.Vector3().subVectors(monsterPos, this.camera.position);
+                    toMonster.normalize();
                     
-                    const eDx = rgt * 3;
-                    const eDz = -fwd * 3; // -Z is up on the screen
-                    const eDist = Math.hypot(eDx, eDz);
-                    
-                    let finalDx = eDx; let finalDz = eDz;
-                    if (eDist > 75) { finalDx = (eDx / eDist) * 75; finalDz = (eDz / eDist) * 75; }
-                    radarExit.style.transform = 'translate(-50%, -50%)';
-                    radarExit.style.left = `calc(50% + ${finalDx}px)`;
-                    radarExit.style.top = `calc(50% + ${finalDz}px)`;
-                    radarExit.style.display = 'block';
-                }
-
-                
-                // Heartbeat audio only
-                if (dist < 15) {
-                    this.heartbeatTimer -= delta;
-                    if (this.heartbeatTimer <= 0) {
-                        this.heartbeatTimer = Math.max(0.3, dist * 0.08);
-                        try {
-                            const ctx = new (window.AudioContext || window.webkitAudioContext)();
-                            const osc = ctx.createOscillator();
-                            const env = ctx.createGain();
-                            osc.type = 'sine';
-                            osc.frequency.setValueAtTime(45, ctx.currentTime);
-                            osc.frequency.exponentialRampToValueAtTime(25, ctx.currentTime + 0.2);
-                            env.gain.setValueAtTime(0, ctx.currentTime);
-                            env.gain.linearRampToValueAtTime(10.0, ctx.currentTime + 0.05);
-                            env.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
-                            osc.connect(env);
-                            env.connect(ctx.destination);
-                            osc.start(ctx.currentTime);
-                            osc.stop(ctx.currentTime + 0.4);
-                        } catch(e) {}
-                    }
-                }
-
-                // Smooth slow rotation to always face player
-                const targetRotation = Math.atan2(px - mx, pz - mz);
-                
-                // Calculate shortest angle difference
-                let diff = targetRotation - this.monster.rotation.y;
-                while (diff < -Math.PI) diff += Math.PI * 2;
-                while (diff > Math.PI) diff -= Math.PI * 2;
-                
-                this.monster.rotation.y += diff * 2.0 * delta; // Turn slowly
-                
-                // Jumpscare condition
-                if (dist < 1.2) {
-                    this.monsterState = 'attacking';
-                    this.attackTimer = 0;
-                } else {
-                    // Weeping Angel Teleport Mechanic
-                    if (this.teleportCooldown === undefined) this.teleportCooldown = 2.0;
-                    this.teleportCooldown -= delta;
-                    
-                    // If player is far, monster teleports closer periodically
-                    if (dist > 5.0 && this.teleportCooldown <= 0) {
-                        // Check if monster is currently in player's FOV
-                        const toMonster = new THREE.Vector3(mx - px, 0, mz - pz).normalize();
-                        const lookDir = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
-                        lookDir.y = 0; lookDir.normalize();
+                    const raycaster = new THREE.Raycaster(this.camera.position, toMonster);
+                    const intersects = raycaster.intersectObjects([...this.walls, this.monster], true);
+                    for (let hit of intersects) {
+                        if (hit.object.geometry && hit.object.geometry.type === 'BoxGeometry' && hit.object.material === this.wallMat) {
+                            break;
+                        }
                         
-                        if (dist > 3.0) {
-                            const moveDist = Math.min(dist - 1.5, 1.0 + Math.random() * 2.0);
-                            
-                            // Visual Glitch effect
-                            if (this.monsterMesh) {
-                                this.monsterMesh.visible = false;
-                                setTimeout(() => { if (this.monsterMesh) this.monsterMesh.visible = true; }, 50);
-                                setTimeout(() => { if (this.monsterMesh) this.monsterMesh.visible = false; }, 100);
-                                setTimeout(() => { if (this.monsterMesh) this.monsterMesh.visible = true; }, 200);
-                                
-                                // Play glitch sound
-                                try {
-                                    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-                                    const osc = ctx.createOscillator();
-                                    const env = ctx.createGain();
-                                    osc.type = 'sawtooth';
-                                    osc.frequency.setValueAtTime(100 + Math.random()*200, ctx.currentTime);
-                                    osc.frequency.exponentialRampToValueAtTime(10, ctx.currentTime + 0.1);
-                                    env.gain.setValueAtTime(0, ctx.currentTime);
-                                    env.gain.linearRampToValueAtTime(10.0 * (window.Settings ? window.Settings.sfxVol : 1.0), ctx.currentTime + 0.02);
-                                    env.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.1);
-                                    osc.connect(env);
-                                    env.connect(ctx.destination);
-                                    osc.start();
-                                    osc.stop(ctx.currentTime + 0.1);
-                                } catch(e) {}
-                            }
-                            
-                            const toPlayer = new THREE.Vector3(px - mx, 0, pz - mz).normalize();
-                            this.monster.position.x += toPlayer.x * moveDist;
-                            this.monster.position.z += toPlayer.z * moveDist;
-                            
-                            // Prevent spawning inside a wall (crude check)
-                            if (this.checkCollision(this.monster.position.x, this.monster.position.z) === 1) {
-                                this.monster.position.x = mx;
-                                this.monster.position.z = mz; // Revert if stuck in wall
-                            }
-                            
-                            this.teleportCooldown = 3.0 + Math.random() * 2.0; // Wait 3-5 seconds before next move
+                        let curr = hit.object;
+                        let hitMonster = false;
+                        while(curr) {
+                            if (curr === this.monster || curr === this.monsterMesh) { hitMonster = true; break; }
+                            curr = curr.parent;
+                        }
+                        if (hitMonster) {
+                            canSee = true;
+                            break;
                         }
                     }
                 }
-            }
-
-            if (this.monsterState === 'attacking') {
-                this.attackTimer += delta;
-                const targetPos = this.monster.position.clone();
-                targetPos.y = this.camera.position.y + 0.5;
-                this.camera.lookAt(targetPos);
                 
-                if (this.monsterMesh) {
-                    this.monsterMesh.position.y += Math.random() * 0.2 - 0.1;
-                    this.monsterMesh.scale.setScalar(this.monsterMesh.scale.x * (1.0 + Math.random() * 0.1));
+                if (!canSee) {
+                    const nextCell = this.getNextStep(mx, mz, px, pz);
+                    if (nextCell) {
+                        this.monster.position.x = nextCell.x + 0.5;
+                        this.monster.position.z = nextCell.z + 0.5;
+                    }
+                    
+                    if (this.flashlightCooldown > 0) {
+                        this.teleportCooldown = 4.0; 
+                    } else {
+                        this.teleportCooldown = 1.0;
+                    }
+                } else {
+                    this.teleportCooldown = 0.1;
                 }
-                
-                if (this.attackTimer > 0.4) this.triggerJumpscare();
             }
         }
+        
         this.prevTime = time;
         return false;
     }
@@ -5526,6 +5621,7 @@ update(dt) {
                     menu: document.getElementById('screen-menu'),
                     settings: document.getElementById('screen-settings'),
                     pause: document.getElementById('screen-pause'),
+                    gameover: document.getElementById('screen-gameover'),
                     hud: document.getElementById('hud')
                 };
                 
@@ -5580,6 +5676,10 @@ update(dt) {
                     }
                 });
                 
+                document.getElementById('btn-gameover-restart').addEventListener('click', () => {
+                    this.changeState('MENU');
+                });
+                
                 document.getElementById('btn-quit').addEventListener('click', () => {
                     if (document.exitFullscreen) {
                         document.exitFullscreen().catch(e => {});
@@ -5610,6 +5710,8 @@ update(dt) {
                     this.ui.instruction.id = "horror-hud-text";
                 } else if (newState === 'PAUSED') {
                     this.screens.pause.classList.remove('hidden');
+                } else if (newState === 'GAMEOVER') {
+                    this.screens.gameover.classList.remove('hidden');
                 }
             }
 
@@ -5701,7 +5803,7 @@ update(dt) {
                 
                 document.body.requestPointerLock();
                 
-                                customMusicPlayer.pause();
+                customMusicPlayer.pause();
                 Synth.startHorrorAudio();
                 
                 const flash = document.getElementById('glitch-flash');
@@ -5779,34 +5881,43 @@ update(dt) {
                         customMusicPlayer.pause();
                     }
                     if (this.backrooms) {
-                        const won = this.backrooms.update(deltaTime);
-                        this.backrooms.render(this.ctx);
-                        
-                        if (won) {
-                            if (document.exitPointerLock) {
-                                document.exitPointerLock();
-                            }
-                            
-                            Synth.stopHorrorAudio();
-                            
-                            if (Settings.musicVol > 0 && !customMusicPlayer.muted) {
-                                customMusicPlayer.play().catch(e => {});
-                            }
-                            
-                            const flash = document.getElementById('glitch-flash');
-                            flash.style.display = 'block'; flash.style.opacity = 1;
-                            
-                            setTimeout(() => {
-                                flash.style.opacity = 0;
-                                if(this.backrooms && this.backrooms.destroy) this.backrooms.destroy();
-                                
+                        const result = this.backrooms.update(deltaTime);
+                          this.backrooms.render(this.ctx);
+                          
+                          if (result === true || result === 'WIN') {
+                              if (document.exitPointerLock) document.exitPointerLock();
+                              Synth.stopHorrorAudio();
+                              if (Settings.musicVol > 0 && !customMusicPlayer.muted) customMusicPlayer.play().catch(e => {});
+                              
+                              const flash = document.getElementById('glitch-flash');
+                              if (flash) {
+                                  flash.style.backgroundColor = "white";
+                                  flash.style.display = 'block'; flash.style.opacity = 1;
+                                  setTimeout(() => {
+                                      flash.style.opacity = 0;
+                                      if(this.backrooms && this.backrooms.destroy) this.backrooms.destroy();
+                                      this.backrooms = null;
+                                      this.changeState('PLAYING');
+                                      const player = document.getElementById('custom-music-player');
+                                      if (player && !window.isMuted) player.play().catch(e=>e);
+                                  }, 500);
+                                  setTimeout(() => { flash.style.display = 'none'; }, 800);
+                              }
+                          } else if (result === 'LOSE') {
+                              if (document.exitPointerLock) document.exitPointerLock();
+                              Synth.stopHorrorAudio();
+                              
+                              const flash = document.getElementById('glitch-flash');
+                              if (flash) {
+                                  flash.style.display = 'none';
+                                  flash.style.opacity = 0;
+                                  flash.classList.add('hidden');
+                              }
+                              
+                              if(this.backrooms && this.backrooms.destroy) this.backrooms.destroy();
                               this.backrooms = null;
-                              this.changeState('PLAYING');
-                              const player = document.getElementById('custom-music-player');
-                              if (player && !window.isMuted) player.play().catch(e=>e);
-
-                            }, 500);
-                        }
+                              this.changeState('GAMEOVER');
+                          }
                     }
                 }
                 
@@ -5820,8 +5931,8 @@ update(dt) {
         }
 
         window.onload = () => {
-            const game = new GameEngine();
-            game.start();
+            window.game = new GameEngine();
+            window.game.start();
         };
 
 // In-game Settings and Mute
@@ -5837,9 +5948,9 @@ function toggleMute() {
 }
 
 document.addEventListener('keydown', (e) => {
-                      if (e.code === 'Escape' && (this.currentState === 'PLAYING' || this.currentState === 'PLAYING_HORROR')) {
+                      if (e.code === 'Escape' && window.game && (window.game.currentState === 'PLAYING' || window.game.currentState === 'PLAYING_HORROR')) {
                           if (document.pointerLockElement) document.exitPointerLock();
-                          this.changeState('PAUSED');
+                          window.game.changeState('PAUSED');
                       }
                   });
                   
