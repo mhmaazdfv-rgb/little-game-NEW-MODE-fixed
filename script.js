@@ -4049,9 +4049,24 @@ const ROOM_TEMPLATES = [
                     }
                 }
                 
+                // Keep room-stamps away from a central box so the original
+                // dense, DFS-carved maze survives untouched in the middle —
+                // random overlapping stamps there were what hollowed it out.
+                const centerMinX = Math.floor(this.width * 0.35);
+                const centerMaxX = Math.floor(this.width * 0.65);
+                const centerMinY = Math.floor(this.height * 0.35);
+                const centerMaxY = Math.floor(this.height * 0.65);
+
                 for (let i = 0; i < 20; i++) {
                     const rx = Math.floor(Math.random() * (this.width - 10)) + 1;
                     const ry = Math.floor(Math.random() * (this.height - 10)) + 1;
+
+                    // Skip this stamp if its 8x8 footprint overlaps the
+                    // protected central band at all.
+                    const overlapsCenter = (rx < centerMaxX && rx + 8 > centerMinX &&
+                                             ry < centerMaxY && ry + 8 > centerMinY);
+                    if (overlapsCenter) continue;
+
                     const template = ROOM_TEMPLATES[Math.floor(Math.random() * ROOM_TEMPLATES.length)];
                     
                     for (let y = 0; y < 8; y++) {
@@ -4567,7 +4582,12 @@ const ROOM_TEMPLATES = [
                 window.addEventListener('keydown', (e) => {
                     this.keys[e.key.toLowerCase()] = true;
                     
-                    if (e.code === 'Escape' || e.code === 'Space') {
+                    if (e.code === 'Space') {
+                        // Space only, not Escape — Escape has a browser quirk
+                        // where, while fullscreen + pointer lock are both
+                        // active (horror mode), some browsers treat it as a
+                        // native "exit both" action and never even dispatch
+                        // the keydown to page JS. Space has no such baggage.
                         this.emit('pauseToggle');
                     }
                     
@@ -4978,8 +4998,8 @@ const ROOM_TEMPLATES = [
         this.canvas = game.canvas;
         this.ctx = game.ctx;
         
-        this.mapWidth = 35;
-        this.mapHeight = 35;
+        this.mapWidth = 40;
+        this.mapHeight = 40;
         const generator = new MazeGenerator(this.mapWidth, this.mapHeight);
         const genResult = generator.generate();
         this.map = genResult.map || genResult; this.exitPos = genResult.exit || {x: this.mapWidth - 1.5, y: this.mapHeight - 1.5};
@@ -5001,7 +5021,9 @@ const ROOM_TEMPLATES = [
         this.webglCanvas.style.position = 'absolute';
         this.webglCanvas.style.top = '0';
         this.webglCanvas.style.left = '0';
-        this.webglCanvas.style.zIndex = '50';
+        this.webglCanvas.style.zIndex = '5'; // was 50 — that sat ABOVE the pause/settings
+                                              // UI (z-index 20), so pausing worked but the
+                                              // menu was invisible behind the frozen 3D view.
         document.getElementById('app').appendChild(this.webglCanvas);
           this.webglCanvas.addEventListener('click', () => { document.body.requestPointerLock(); });
         
@@ -5042,13 +5064,14 @@ const ROOM_TEMPLATES = [
 
         this.camera.position.set(1.5, 0.5, 1.5);
         this.monsterState = 'stalking';
+        this.monsterFrozen = false;
         this.frustum = new THREE.Frustum();
         this.projScreenMatrix = new THREE.Matrix4();
         this.heartbeatTimer = 0;
 
         // Flashlight state must start defined, or "undefined <= 0" silently
         // evaluates to false forever and the F key never does anything.
-        this.flashlightBattery = 12.0;
+        this.flashlightBattery = 16.0;
         this.flashlightCooldown = 0;
 
         this.kd = (e) => this.onKeyDown(e);
@@ -5097,8 +5120,32 @@ const ROOM_TEMPLATES = [
               this.monsterMesh = model;
 
             this.monster.add(model);
-            this.monster.position.set(this.mapWidth - 2.5, 0, this.mapHeight - 2.5);
+            // Spawn somewhere in the central band of the map instead of right next
+            // to the exit — starting it at the exit corner meant it was never
+            // actually near the player and had no real chance to close in before
+            // someone just ran straight to the exit.
+            const spawn = this.findCentralSpawnCell();
+            this.monster.position.set(spawn.x, 0, spawn.z);
         });
+    }
+
+    // Picks an open (non-wall) tile within the middle band of the map so the
+    // monster starts roughly between the player and the exit, not glued to
+    // either one.
+    findCentralSpawnCell() {
+        const minX = Math.floor(this.mapWidth * 0.35);
+        const maxX = Math.floor(this.mapWidth * 0.65);
+        const minZ = Math.floor(this.mapHeight * 0.35);
+        const maxZ = Math.floor(this.mapHeight * 0.65);
+        for (let attempt = 0; attempt < 60; attempt++) {
+            const x = minX + Math.floor(Math.random() * (maxX - minX));
+            const z = minZ + Math.floor(Math.random() * (maxZ - minZ));
+            if (this.map[z] && this.map[z][x] === 0) {
+                return { x: x + 0.5, z: z + 0.5 };
+            }
+        }
+        // Fallback: dead-center of the map
+        return { x: this.mapWidth / 2, z: this.mapHeight / 2 };
     }
 
     setupLighting() {
@@ -5243,11 +5290,8 @@ const ROOM_TEMPLATES = [
 
         setTimeout(() => {
             this.monsterState = 'stalking';
-            this.monster.position.set(
-                Math.floor(Math.random() * (this.mapWidth-2)) + 1.5,
-                0,
-                Math.floor(Math.random() * (this.mapHeight-2)) + 1.5
-            );
+            const spawn = this.findCentralSpawnCell();
+            this.monster.position.set(spawn.x, 0, spawn.z);
         }, 10000);
     }
 
@@ -5257,6 +5301,15 @@ const ROOM_TEMPLATES = [
 update(dt) {
         if (this.hasWon) return true;
         const time = performance.now();
+
+        // Freeze everything (monster included) while the controls intro is
+        // showing — just keep the frame clock in sync so there's no huge
+        // delta/jump the instant it's dismissed.
+        if (this.game && this.game.introShowing) {
+            this.prevTime = time;
+            return false;
+        }
+
         const delta = Math.min((time - this.prevTime) / 1000, 0.1);
 
         // Stamina logic
@@ -5264,7 +5317,7 @@ update(dt) {
         if (this.exhausted === undefined) this.exhausted = false;
         
         if (this.stamina <= 0) this.exhausted = true;
-        if (this.stamina > 30) this.exhausted = false;
+        if (this.stamina > 40) this.exhausted = false;
 
         const isMoving = this.moveForward || this.moveBackward || this.moveLeft || this.moveRight;
         const isSprinting = this.moveShift && !this.exhausted && isMoving;
@@ -5272,7 +5325,7 @@ update(dt) {
         if (isSprinting) {
             this.stamina = Math.max(0, this.stamina - 30 * delta);
         } else {
-            this.stamina = Math.min(100, this.stamina + 2.5 * delta);
+            this.stamina = Math.min(100, this.stamina + 2 * delta);
         }
         
         const staminaBar = document.getElementById('stamina-fill');
@@ -5281,7 +5334,7 @@ update(dt) {
             staminaBar.style.backgroundColor = this.exhausted ? 'red' : '#00ff00';
         }
 
-        let speed = isSprinting ? 3.5 : 2.0;
+        let speed = isSprinting ? 3.0 : 1.4;
 
         // Player movement
         const dir = new THREE.Vector3();
@@ -5338,7 +5391,7 @@ update(dt) {
             if (this.flashlightBattery <= 0) {
                 this.flashlightBattery = 0;
                 this.flashlight.visible = false;
-                this.flashlightCooldown = 3.0;
+                this.flashlightCooldown = 5.0;
             }
         } else {
             if (this.flashlightCooldown > 0) {
@@ -5433,11 +5486,15 @@ update(dt) {
                 }
             }
 
-            const targetRotation = Math.atan2(px - mx, pz - mz);
-            let diff = targetRotation - this.monster.rotation.y;
-            while (diff < -Math.PI) diff += Math.PI * 2;
-            while (diff > Math.PI) diff -= Math.PI * 2;
-            this.monster.rotation.y += diff * 2.0 * delta;
+            // Only rotate to face the player while actually moving/stalking —
+            // rotating while "frozen" broke the statue illusion.
+            if (!this.monsterFrozen) {
+                const targetRotation = Math.atan2(px - mx, pz - mz);
+                let diff = targetRotation - this.monster.rotation.y;
+                while (diff < -Math.PI) diff += Math.PI * 2;
+                while (diff > Math.PI) diff -= Math.PI * 2;
+                this.monster.rotation.y += diff * 2.0 * delta;
+            }
             
             // 2. Damage completely independent of visibility
             if (dist <= 1.2) {
@@ -5492,7 +5549,13 @@ update(dt) {
                 const monsterPos = this.monster.position.clone();
                 monsterPos.y = 1.0; 
                 
-                if (frustum.intersectsSphere(new THREE.Sphere(monsterPos, 1.5))) {
+                // "Seeing" the monster requires the flashlight to actually be
+                // lighting it up — geometry+angle alone isn't enough. Without
+                // this, the monster could freeze (or fail to move) even in
+                // pitch darkness, which made no sense: you can't be "watching"
+                // something you can't actually see.
+                const flashlightOn = !!(this.flashlight && this.flashlight.visible);
+                if (flashlightOn && frustum.intersectsSphere(new THREE.Sphere(monsterPos, 1.5))) {
                     const toMonster = new THREE.Vector3().subVectors(monsterPos, this.camera.position);
                     toMonster.normalize();
                     
@@ -5517,6 +5580,7 @@ update(dt) {
                 }
                 
                 if (!canSee) {
+                    this.monsterFrozen = false;
                     const nextCell = this.getNextStep(mx, mz, px, pz);
                     if (nextCell) {
                         this.monster.position.x = nextCell.x + 0.5;
@@ -5526,10 +5590,11 @@ update(dt) {
                     if (this.flashlightCooldown > 0) {
                         this.teleportCooldown = 4.0; 
                     } else {
-                        this.teleportCooldown = 1.0;
+                        this.teleportCooldown = 0.65;
                     }
                 } else {
-                    this.teleportCooldown = 0.1;
+                    this.monsterFrozen = true;
+                    this.teleportCooldown = 0.4;
                 }
             }
         }
@@ -5574,6 +5639,7 @@ update(dt) {
                 this.canvas = document.getElementById('game-canvas');
                 this.ctx = this.canvas.getContext('2d');
                 this.currentState = 'MENU';
+                this.introShowing = false;
                 
                 this.score = 0;
                 this.combo = 1;
@@ -5594,19 +5660,39 @@ update(dt) {
                 window.addEventListener('resize', () => this.resize());
                 
                 Input.on('pauseToggle', () => {
+                    // Space now does double duty (also dismisses the controls
+                    // intro) — don't let it also toggle pause while that's up.
+                    if (this.introShowing) return;
                     if (this.currentState === 'PLAYING' || this.currentState === 'PLAYING_HORROR') {
                         if (true) { // Always emit so it doesn't fail on lock bugs
                             document.exitPointerLock();
                         }
                         this.changeState('PAUSED');
                     } else if (this.currentState === 'PAUSED') {
+                        // NOTE: no requestPointerLock() call directly off the
+                        // Escape/Space keydown that triggered this — browsers
+                        // reject re-acquiring lock in the same gesture chain
+                        // that just released it. The player re-locks with a
+                        // normal click on the canvas instead.
                         if (this.backrooms) {
                             this.changeState('PLAYING_HORROR'); document.getElementById('horror-hud').style.display = 'block';
-                            
-                            document.body.requestPointerLock();
                         } else {
                             this.changeState('PLAYING'); document.getElementById('horror-hud').style.display = 'none';
                         }
+                    }
+                });
+
+                // Belt-and-suspenders for horror mode specifically: when both
+                // fullscreen AND pointer lock are active at once, some browsers
+                // handle the Escape key as a native "exit both" action and never
+                // dispatch the keydown to page JS at all — so the Escape-based
+                // pauseToggle above can silently miss it there. Pointer lock
+                // being released is a dedicated, reliable browser event
+                // regardless of *why* it was released, so use that as a backup
+                // trigger specifically for horror mode.
+                document.addEventListener('pointerlockchange', () => {
+                    if (!document.pointerLockElement && this.currentState === 'PLAYING_HORROR' && !this.introShowing) {
+                        this.changeState('PAUSED');
                     }
                 });
             }
@@ -5670,7 +5756,8 @@ update(dt) {
                     if (this.backrooms) {
                         this.changeState('PLAYING_HORROR');
                         
-                        document.body.requestPointerLock();
+                        const p = document.body.requestPointerLock();
+                        if (p && p.catch) p.catch(() => {});
                     } else {
                         this.changeState('PLAYING');
                     }
@@ -5796,13 +5883,6 @@ update(dt) {
             }
 
             triggerBackrooms() {
-                if (document.documentElement.requestFullscreen) {
-                    document.documentElement.requestFullscreen().catch(e => {});
-                }
-                
-                
-                document.body.requestPointerLock();
-                
                 customMusicPlayer.pause();
                 Synth.startHorrorAudio();
                 
@@ -5816,6 +5896,80 @@ update(dt) {
                   setTimeout(() => { flash.style.display = 'none'; }, 650);
                 setTimeout(() => { flash.style.display = 'block'; flash.style.opacity = 1; }, 300);
                 setTimeout(() => { flash.style.opacity = 0; }, 600);
+
+                // Show the controls intro before the player can actually move.
+                // This is built with plain JS/DOM (no HTML changes needed), and
+                // it doubles as breathing room for the monster model to finish
+                // loading/decoding in the background before it needs to be seen.
+                this.showHorrorIntro();
+            }
+
+            showHorrorIntro() {
+                const overlay = document.createElement('div');
+                overlay.id = 'horror-intro-overlay';
+                overlay.style.cssText = `
+                    position:fixed; inset:0; width:100%; height:100%;
+                    background: rgba(2,2,2,0.94);
+                    z-index: 500; display:flex; flex-direction:column;
+                    align-items:center; justify-content:center;
+                    font-family: 'Space Mono', monospace; color:#ddd;
+                    text-align:center; padding: 2rem;
+                `;
+                overlay.innerHTML = `
+                    <h2 style="font-size:1.8rem; letter-spacing:0.15em; color:#eee; margin-bottom:1.8rem;">BEFORE YOU GO IN</h2>
+                    <div style="display:grid; grid-template-columns: auto 1fr; gap: 0.7rem 1.4rem; font-size:0.95rem; text-align:left; margin-bottom:2rem; color:#aaa; max-width:520px;">
+                        <span style="color:#fff; font-weight:bold;">WASD</span><span>Move</span>
+                        <span style="color:#fff; font-weight:bold;">MOUSE</span><span>Look around</span>
+                        <span style="color:#fff; font-weight:bold;">SHIFT</span><span>Sprint — running for too long will wear you out, so you'll need to slow down and catch your breath before you can sprint again</span>
+                        <span style="color:#fff; font-weight:bold;">F</span><span>Flashlight — it won't stay on forever, and once it cuts out it needs a little time to recover before it'll turn back on</span>
+                        <span style="color:#fff; font-weight:bold;">M</span><span>Mute / unmute audio</span>
+                        <span style="color:#fff; font-weight:bold;">SPACE</span><span>Pause / settings</span>
+                    </div>
+                    <p style="max-width:480px; color:#888; font-size:0.85rem; margin-bottom:2rem; line-height:1.6;">
+                        Something is in there with you. It tends to keep still while it's being watched —
+                        but that only works if you can actually see it. Darkness won't stop it.
+                    </p>
+                    <button id="horror-intro-continue" style="
+                        background: rgba(255,255,255,0.05); border:1px solid #555; color:#eee;
+                        font-family: inherit; font-size:1.05rem; padding:0.9rem 2.6rem;
+                        border-radius:50px; cursor:pointer; letter-spacing:0.1em;
+                    ">ENTER</button>
+                `;
+                document.getElementById('app').appendChild(overlay);
+
+                // Freeze the horror sim (monster movement, timers) while this
+                // is up — the player shouldn't be able to get jumped while
+                // reading the controls.
+                this.introShowing = true;
+
+                const dismissIntro = () => {
+                    if (!this.introShowing) return; // already dismissed
+                    this.introShowing = false;
+                    overlay.remove();
+                    document.removeEventListener('keydown', onIntroKeydown);
+                    // Fullscreen + pointer lock happen now, on a real user
+                    // gesture (click OR keypress both count), instead of at
+                    // the very start of triggerBackrooms().
+                    if (document.documentElement.requestFullscreen) {
+                        document.documentElement.requestFullscreen().catch(e => {});
+                    }
+                    const p = document.body.requestPointerLock();
+                    if (p && p.catch) p.catch(() => {});
+                };
+
+                const continueBtn = document.getElementById('horror-intro-continue');
+                continueBtn.addEventListener('click', dismissIntro);
+                continueBtn.focus();
+
+                // Let Enter or Space dismiss it directly too, without needing
+                // the button to already have focus from a prior click.
+                const onIntroKeydown = (e) => {
+                    if (e.code === 'Enter' || e.code === 'NumpadEnter' || e.code === 'Space') {
+                        e.preventDefault();
+                        dismissIntro();
+                    }
+                };
+                document.addEventListener('keydown', onIntroKeydown);
             }
 
             updateHUD() {
@@ -5947,12 +6101,9 @@ function toggleMute() {
     if (btn) btn.style.background = isMuted ? 'red' : 'rgba(0,0,0,0.5)';
 }
 
-document.addEventListener('keydown', (e) => {
-                      if (e.code === 'Escape' && window.game && (window.game.currentState === 'PLAYING' || window.game.currentState === 'PLAYING_HORROR')) {
-                          if (document.pointerLockElement) document.exitPointerLock();
-                          window.game.changeState('PAUSED');
-                      }
-                  });
+// (Removed a duplicate Escape listener here — InputManager's pauseToggle
+// already handles Escape on its own. Having two handlers both react to the
+// same keypress was causing Pause to open and instantly close again.)
                   
 document.addEventListener('keydown', (e) => {
     if (e.code === 'KeyM') {
