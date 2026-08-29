@@ -1,20 +1,118 @@
-﻿<!DOCTYPE html><html lang="en"><head>    <meta charset="UTF-8">    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">    <title>Firefly Flow: Ultimate Tracking Edition & Backrooms</title>    <link rel="preconnect" href="https://fonts.googleapis.com">    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>    <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/DRACOLoader.js"></script>    <link rel="stylesheet" href="style.css">
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Firefly Flow: Ultimate Tracking Edition & Backrooms</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/DRACOLoader.js"></script>
+    <link rel="stylesheet" href="style.css">
     <script src="https://cdn.tailwindcss.com"></script>
-</head><body>    <div id="app">        <div id="screen-menu" class="screen">            <h1 class="title">FIREFLY<br>FLOW</h1>            <p class="subtitle">Press and hold to track the light.</p>            <button id="btn-start" class="btn">Begin Session</button>            <button id="btn-settings-open" class="btn">Settings</button>        </div>        <div id="screen-settings" class="screen hidden">            <h1 class="title text-5xl">SETTINGS</h1>            <div class="settings-panel">                <div class="setting-row">                    <span>Custom Music</span>                    <input type="file" id="music-upload" accept="audio/*" class="hidden">                    <button id="btn-upload-music" class="btn text-sm px-4 py-2">Select Audio File</button>                </div>                <div class="setting-row">                    <span>Music Volume</span>                    <input type="range" id="set-music" min="0" max="100" value="50" class="w-[120px] cursor-pointer">                </div>                <div class="setting-row">
-                    <span>Flashlight</span>
-                    <button id="btn-toggle-flashlight" class="btn text-sm px-4 py-2" onclick="if(window.currentGameEngine && window.currentGameEngine.backrooms && window.currentGameEngine.backrooms.flashlight && window.currentGameEngine.backrooms.flashlightCooldown <= 0) window.currentGameEngine.backrooms.flashlight.visible = !window.currentGameEngine.backrooms.flashlight.visible">Toggle (F)</button>
+</head>
+<body>
+    <div id="app">
+        <div id="screen-menu" class="screen">
+            <h1 class="title">FIREFLY<br>FLOW</h1>
+            <p class="subtitle">Press and hold to track the light.</p>
+            <button id="btn-start" class="btn">Begin Session</button>
+            <button id="btn-settings-open" class="btn">Settings</button>
+        </div>
+        <div id="screen-settings" class="screen hidden">
+            <h1 class="title text-5xl">SETTINGS</h1>
+            <div class="settings-panel">
+                <div class="setting-row">
+                    <span>Custom Music</span>
+                    <input type="file" id="music-upload" accept="audio/*" class="hidden">
+                    <button id="btn-upload-music" class="btn text-sm px-4 py-2">Select Audio File</button>
                 </div>
                 <div class="setting-row">
-                    <span>SFX Volume</span>                    <input type="range" id="set-sfx" min="0" max="100" value="100" class="w-[120px] cursor-pointer">                </div>                <div class="setting-row">                    <span>Visual Quality</span>                    <div class="stepper" id="set-quality" data-options="LOW,HIGH"><span>HIGH</span></div>                </div>                <div class="setting-row">                    <span>Swarm Size</span>                    <div class="stepper" id="set-swarm" data-options="FEW,NORMAL,SWARM"><span>NORMAL</span></div>                </div>                <div class="setting-row">                    <span>Game Speed</span>                    <div class="stepper" id="set-speed" data-options="ZEN,NORMAL,FAST"><span>ZEN</span></div>                </div>            </div>            <button id="btn-settings-close" class="btn">Back</button>        </div>        <div id="screen-gameover" class="screen hidden" style="background: black;">
+                    <span>Music Volume</span>
+                    <input type="range" id="set-music" min="0" max="100" value="50" class="w-[120px] cursor-pointer">
+                </div>
+                <div class="setting-row">
+                    <span>SFX Volume</span>
+                    <input type="range" id="set-sfx" min="0" max="100" value="100" class="w-[120px] cursor-pointer">
+                </div>
+                <div class="setting-row">
+                    <span>Visual Quality</span>
+                    <div class="stepper" id="set-quality" data-options="LOW,HIGH"><span>HIGH</span></div>
+                </div>
+                <div class="setting-row">
+                    <span>Swarm Size</span>
+                    <div class="stepper" id="set-swarm" data-options="FEW,NORMAL,SWARM"><span>NORMAL</span></div>
+                </div>
+                <div class="setting-row">
+                    <span>Game Speed</span>
+                    <div class="stepper" id="set-speed" data-options="ZEN,NORMAL,FAST"><span>ZEN</span></div>
+                </div>
+            </div>
+            <button id="btn-settings-close" class="btn">Back</button>
+        </div>
+        <div id="screen-gameover" class="screen hidden" style="background: black;">
             <h1 class="title text-8xl" style="color: #aa0000; font-family: monospace;">YOU DIED</h1>
             <p class="subtitle text-gray-500 mt-4">The darkness consumed you.</p>
             <button id="btn-gameover-restart" class="btn mt-8">Return to Menu</button>
         </div>
-        <div id="screen-pause" class="screen hidden">            <h1 class="title text-6xl">PAUSED</h1>            <p class="subtitle">Take a deep breath.</p>            <button id="btn-resume" class="btn">Resume</button>
-              <button id="btn-pause-settings" class="btn">Settings</button>            <button id="btn-quit" class="btn">Quit to Menu</button>        </div>        <div id="hud" class="screen hidden">    <button id="global-mute-btn" class="absolute top-5 left-5 px-4 py-2 font-mono bg-black/70 text-white border border-[#444] rounded cursor-pointer z-[1000]">MUTE (M)</button>            <div class="hud-top">                <div id="score-container">                    <div id="score-label">Focus Score</div>                    <div id="score-value">0</div>                </div>                <div id="combo-container">                    <div id="combo-value">x1</div>                    <div id="combo-bar-bg">                        <div id="combo-bar-fill"></div>                    </div>                </div>            </div>            <div class="hud-bottom">                <div class="instruction-text" id="instruction-hud">Press and hold to track fireflies</div>            </div>            <button id="btn-pause">&#x23F8;</button>        </div>        <div class="ambient-glow" id="ambientGlow"></div>    <div id="horror-hud" style="display: none;" class="absolute inset-0 w-full h-full pointer-events-none z-[100]">       <div id="controls-manual" class="absolute bottom-5 right-5 bg-black/70 border border-[#444] text-[#888] font-mono text-xs p-3 rounded-lg z-[100] pointer-events-none">          <div>[WASD] Move</div>          <div>[MOUSE] Look</div>          <div>[SHIFT] Sprint</div>          <div>[M] Toggle Mute</div>
-          <div>[F] Toggle Flashlight</div>          <div>[ESC] Pause / Settings</div>       </div>       <div class="absolute bottom-[60px] left-7 w-[300px] h-[10px] bg-black/80 border-2 border-[#554400] rounded-lg overflow-hidden">
+        <div id="screen-pause" class="screen hidden">
+            <h1 class="title text-6xl">PAUSED</h1>
+            <p class="subtitle">Take a deep breath.</p>
+            <button id="btn-resume" class="btn">Resume</button>
+              <button id="btn-pause-settings" class="btn">Settings</button>
+            <button id="btn-quit" class="btn">Quit to Menu</button>
+        </div>
+        <div id="hud" class="screen hidden">
+            <div class="hud-top">
+                <div id="score-container">
+                    <div id="score-label">Focus Score</div>
+                    <div id="score-value">0</div>
+                </div>
+                <div id="combo-container">
+                    <div id="combo-value">x1</div>
+                    <div id="combo-bar-bg">
+                        <div id="combo-bar-fill"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="hud-bottom">
+                <div class="instruction-text" id="instruction-hud">Press and hold to track fireflies</div>
+            </div>
+            <button id="btn-pause">&#x23F8;</button>
+        </div>
+        <div class="ambient-glow" id="ambientGlow"></div>
+    <div id="horror-hud" style="display: none;" class="absolute inset-0 w-full h-full pointer-events-none z-[100]">
+       <div id="controls-manual" class="absolute bottom-5 right-5 bg-black/70 border border-[#444] text-[#888] font-mono text-xs p-3 rounded-lg z-[100] pointer-events-none">
+          <div>[WASD] Move</div>
+          <div>[MOUSE] Look</div>
+          <div>[SHIFT] Sprint</div>
+          <div>[M] Toggle Mute</div>
+          <div>[F] Toggle Flashlight</div>
+          <div>[SPACE] Pause / Settings</div>
+       </div>
+       <div class="absolute bottom-[60px] left-7 w-[300px] h-[10px] bg-black/80 border-2 border-[#554400] rounded-lg overflow-hidden">
           <div id="flashlight-battery" class="h-full bg-yellow-400 transition-[width,background-color] duration-[100ms] ease-linear" style="width: 100%;"></div>
        </div>
-       <div class="absolute bottom-7 left-7 w-[300px] h-[15px] bg-black/80 border-2 border-[#333] rounded-lg overflow-hidden">          <div id="stamina-fill" class="h-full bg-[#00ff00] transition-[width,background-color] duration-[100ms,300ms] ease-linear" style="width: 100%;"></div>       </div>       <div class="absolute top-7 right-7 w-[160px] h-[160px] bg-[#001e00]/30 border-2 border-green-500/50 rounded-full overflow-hidden">          <!-- Radar sweep -->          <div class="absolute top-0 left-1/2 w-1/2 h-1/2 bg-gradient-to-r from-transparent to-green-500/40 origin-bottom-left animate-[sweep_2s_infinite_linear]"></div>          <!-- Crosshairs -->          <div class="absolute top-1/2 left-0 w-full h-[1px] bg-green-500/20"></div>          <div class="absolute top-0 left-1/2 w-[1px] h-full bg-green-500/20"></div>          <div id="radar-exit" class="absolute top-1/2 left-1/2 w-1.5 h-1.5 bg-[#00ffff] transform -translate-x-1/2 -translate-y-1/2 block shadow-[0_0_8px_#00ffff]"></div>          <div id="radar-player" class="absolute top-1/2 left-1/2 w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-b-[8px] border-b-[#00ff00] transform -translate-x-1/2 -translate-y-1/2 shadow-[0_0_5px_#00ff00] origin-center"></div>          <div id="radar-monster" class="absolute top-1/2 left-1/2 w-1.5 h-1.5 bg-red-500 rounded-full transform -translate-x-1/2 -translate-y-1/2 block shadow-[0_0_8px_red]"></div>       </div>    </div>    <div class="glitch-flash" id="glitch-flash"></div>        <canvas id="game-canvas"></canvas>    </div>    <script src="script.js"></script>
-</body></html>
+       <div class="absolute bottom-7 left-7 w-[300px] h-[15px] bg-black/80 border-2 border-[#333] rounded-lg overflow-hidden">
+          <div id="stamina-fill" class="h-full bg-[#00ff00] transition-[width,background-color] duration-[100ms,300ms] ease-linear" style="width: 100%;"></div>
+       </div>
+       <div class="absolute top-7 right-7 w-[160px] h-[160px] bg-[#001e00]/30 border-2 border-green-500/50 rounded-full overflow-hidden">
+          <!-- Radar sweep -->
+          <div class="absolute top-0 left-1/2 w-1/2 h-1/2 bg-gradient-to-r from-transparent to-green-500/40 origin-bottom-left animate-[sweep_2s_infinite_linear]"></div>
+          <!-- Crosshairs -->
+          <div class="absolute top-1/2 left-0 w-full h-[1px] bg-green-500/20"></div>
+          <div class="absolute top-0 left-1/2 w-[1px] h-full bg-green-500/20"></div>
+          <div id="radar-exit" class="absolute top-1/2 left-1/2 w-1.5 h-1.5 bg-[#00ffff] transform -translate-x-1/2 -translate-y-1/2 block shadow-[0_0_8px_#00ffff]"></div>
+          <div id="radar-player" class="absolute top-1/2 left-1/2 w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-b-[8px] border-b-[#00ff00] transform -translate-x-1/2 -translate-y-1/2 shadow-[0_0_5px_#00ff00] origin-center"></div>
+          <div id="radar-monster" class="absolute top-1/2 left-1/2 w-1.5 h-1.5 bg-red-500 rounded-full transform -translate-x-1/2 -translate-y-1/2 block shadow-[0_0_8px_red]"></div>
+       </div>
+    </div>
+    <div class="glitch-flash" id="glitch-flash"></div>
+        <canvas id="game-canvas"></canvas>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
